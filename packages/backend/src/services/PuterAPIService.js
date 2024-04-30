@@ -63,6 +63,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/send-confirm-email'))
         app.use(require('../routers/send-pass-recovery-email'))
         app.use(require('../routers/set-desktop-bg'))
+        app.use(require('../routers/verify-pass-recovery-token'))
         app.use(require('../routers/set-pass-using-token'))
         app.use(require('../routers/set_layout'))
         app.use(require('../routers/set_sort_by'))
@@ -71,6 +72,7 @@ class PuterAPIService extends BaseService {
         app.use(require('../routers/sites'))
         // app.use(require('../routers/filesystem_api/stat'))
         app.use(require('../routers/suggest_apps'))
+        app.use(require('../routers/healthcheck'))
         app.use(require('../routers/test'))
         app.use(require('../routers/update-taskbar-items'))
         require('../routers/whoami')(app);

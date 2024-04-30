@@ -24,14 +24,11 @@ import UIItem from './UI/UIItem.js'
 import UIWindow from './UI/UIWindow.js'
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
-import UIWindowConfirmDownload from './UI/UIWindowConfirmDownload.js';
 import UIWindowCopyProgress from './UI/UIWindowCopyProgress.js';
 import UIWindowMoveProgress from './UI/UIWindowMoveProgress.js';
 import UIWindowNewFolderProgress from './UI/UIWindowNewFolderProgress.js';
-import UIWindowDownloadProgress from './UI/UIWindowDownloadProgress.js';
 import UIWindowUploadProgress from './UI/UIWindowUploadProgress.js';
 import UIWindowProgressEmptyTrash from './UI/UIWindowProgressEmptyTrash.js';
-import download from './helpers/download.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import content_type_to_icon from './helpers/content_type_to_icon.js';
@@ -670,7 +667,7 @@ window.update_auth_data = (auth_token, user)=>{
 
     // Has email changed?
     if(window.user?.email !== user.email && user.email){
-        $('.user-email').html(user.email);
+        $('.user-email').html(html_encode(user.email));
     }
 
     // update this session's user data
@@ -1097,80 +1094,6 @@ window.show_save_account_notice_if_needed = function(message){
     })
 }
 
-window.launch_download_from_url = async function(){
-    // get url query params
-    const url_query_params = new URLSearchParams(window.location.search);
-
-    // is this download?
-    if(url_query_params.has('download')){
-        let url = url_query_params.get('download');
-        let name = url_query_params.get('name');
-        let is_dir = url_query_params.get('is_dir');
-        let url_obj;
-
-        // if url doesn't have a protocol, add http://
-        if(!url.startsWith('http://') && !url.startsWith('https://')){
-            url = 'http://' + url;
-        }
-
-        // parse url
-        try{
-            url_obj = new URL(url);
-        }catch(e){
-            UIAlert("Invalid download URL.");
-            return;
-        }
-
-        // get hostname from url
-        let hostname = url_obj.hostname;
-
-        // name
-        if(!name)
-            name = url.split('/').pop().split('#')[0].split('?')[0];
-
-        // determine file type from url
-        let file_type = mime.getType(name);
-
-        // confirm download
-        if(await UIWindowConfirmDownload({url: url, name: name, source: hostname, type: file_type, is_dir: is_dir})){
-            // download progress tracker
-            let dl_op_id = operation_id++;
-
-            // upload progress tracker defaults
-            window.progress_tracker[dl_op_id] = [];
-            window.progress_tracker[dl_op_id][0] = {};
-            window.progress_tracker[dl_op_id][0].total = 0;
-            window.progress_tracker[dl_op_id][0].ajax_uploaded = 0;
-            window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
-
-            const progress_window = await UIWindowDownloadProgress({operation_id: dl_op_id, item_name: name});
-
-            const res = await download({
-                url: url, 
-                name: name,
-                dest_path: desktop_path, 
-                auth_token: auth_token, 
-                api_origin: api_origin,
-                dedupe_name: true,
-                overwrite: false,
-                operation_id: dl_op_id,
-                item_upload_id: 0,
-                success: function(res){
-                    $(progress_window).close();
-                },
-                error: function(err){
-                    UIAlert(err && err.message ? err.message : "Download failed.");
-                    $(progress_window).close();
-                }
-            });
-
-            // clear window URL
-            window.history.pushState(null, document.title, '/');
-        }
-        
-    }
-}
-
 window.onpopstate = (event) => {
     if(event.state !== null && event.state.window_id !== null){
         $(`.window[data-id="${event.state.window_id}"]`).focusWindow();
@@ -1341,7 +1264,7 @@ window.copy_clipboard_items = async function(dest_path, dest_container_element){
             let copy_path = clipboard[i].path;
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            $(progwin).find('.copy-from').html(copy_path);
+            $(progwin).find('.copy-from').html(html_encode(copy_path));
             do{
                 if(overwrite)
                     item_with_same_name_already_exists = false;
@@ -1445,7 +1368,7 @@ window.copy_items = function(el_items, dest_path){
             let copy_path = $(el_items[i]).attr('data-path');
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            $(progwin).find('.copy-from').html(copy_path);
+            $(progwin).find('.copy-from').html(html_encode(copy_path));
 
             do{
                 if(overwrite)
@@ -1833,12 +1756,19 @@ window.launch_app = async (options)=>{
             }
         }
 
+        // Add locale to URL
+        iframe_url.searchParams.append('puter.locale', window.locale);
+
         // Add options.args to URL
         iframe_url.searchParams.append('puter.args', JSON.stringify(options.args ?? {}));
 
         // ...and finally append utm_source=puter.com to the URL
         iframe_url.searchParams.append('utm_source', 'puter.com');
 
+        // register app_instance_uid
+        window.app_instance_ids.add(uuid);
+
+        // open window
         el_win = UIWindow({
             element_uuid: uuid,
             title: title,
@@ -1923,7 +1853,8 @@ window.open_item = async function(options){
     const is_shortcut = $(el_item).attr('data-is_shortcut') === '1';
     const shortcut_to_path = $(el_item).attr('data-shortcut_to_path');
     const associated_app_name = $(el_item).attr('data-associated_app_name');
-    const file_uid = $(el_item).attr('data-uid')
+    const file_uid = $(el_item).attr('data-uid');
+    
     //----------------------------------------------------------------
     // Is this a shortcut whose source is perma-deleted?
     //----------------------------------------------------------------
@@ -2020,7 +1951,7 @@ window.open_item = async function(options){
     //----------------------------------------------------------------
     // Does the user have a preference for this file type?
     //----------------------------------------------------------------
-    else if(user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`]) {
+    else if(!associated_app_name && !is_dir && user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`]) {
         launch_app({
             name: user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`],
             file_path: item_path,
@@ -2287,7 +2218,7 @@ window.move_items = async function(el_items, dest_path, is_undo = false){
                 // --------------------------------------------------------
                 // update progress window with current item being moved
                 // --------------------------------------------------------
-                $(progwin).find('.move-from').html(path_to_show_on_progwin);
+                $(progwin).find('.move-from').html(html_encode(path_to_show_on_progwin));
 
                 // execute move
                 let resp = await puter.fs.move({
@@ -3572,3 +3503,53 @@ window.report_app_closed = (instance_id) => {
 
     // TODO: Once other AppConnections exist, those will need notifying too.
 };
+
+window.check_password_strength = (password) => {
+    // Define criteria for password strength
+    const criteria = {
+        minLength: 8,
+        hasUpperCase: /[A-Z]/.test(password),
+        hasLowerCase: /[a-z]/.test(password),
+        hasNumber: /\d/.test(password),
+        hasSpecialChar: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
+    };
+
+    let overallPass = true;
+
+    // Initialize report object
+    let criteria_report = {
+        minLength: {
+            message: `Password must be at least ${criteria.minLength} characters long`,
+            pass: password.length >= criteria.minLength,
+        },
+        hasUpperCase: {
+            message: 'Password must contain at least one uppercase letter',
+            pass: criteria.hasUpperCase,
+        },
+        hasLowerCase: {
+            message: 'Password must contain at least one lowercase letter',
+            pass: criteria.hasLowerCase,
+        },
+        hasNumber: {
+            message: 'Password must contain at least one number',
+            pass: criteria.hasNumber,
+        },
+        hasSpecialChar: {
+            message: 'Password must contain at least one special character',
+            pass: criteria.hasSpecialChar,
+        },
+    };
+
+    // Check overall pass status and add messages
+    for (let criterion in criteria) {
+        if (!criteria_report[criterion].pass) {
+            overallPass = false;
+            break;
+        }
+    }
+
+    return {
+        overallPass: overallPass,
+        report: criteria_report,
+    };
+}

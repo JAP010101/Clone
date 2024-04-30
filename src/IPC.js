@@ -27,6 +27,7 @@ import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIPrompt from './UI/UIPrompt.js';
 import download from './helpers/download.js';
 import path from "./lib/path.js";
+import UIContextMenu from './UI/UIContextMenu.js';
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI) aand each other using the postMessage API.
@@ -70,7 +71,10 @@ window.addEventListener('message', async (event) => {
 
     // `appInstanceID` is required
     if(!event.data.appInstanceID){
-        console.log(`appInstanceID is needed`);
+        console.error(`appInstanceID is needed`);
+        return;
+    }else if(!window.app_instance_ids.has(event.data.appInstanceID)){
+        console.error(`appInstanceID is invalid`);
         return;
     }
 
@@ -99,7 +103,6 @@ window.addEventListener('message', async (event) => {
     // windowFocused
     //-------------------------------------------------
     else if(event.data.msg === 'windowFocused'){
-        console.log('windowFocused');
     }
     //--------------------------------------------------------
     // ALERT
@@ -164,7 +167,6 @@ window.addEventListener('message', async (event) => {
                 center: event.data.options.center,
                 show_in_taskbar: event.data.options.show_in_taskbar,                    
                 iframe_srcdoc: event.data.options.content,
-                iframe_url: event.data.options.url,
                 parent_uuid: event.data.appInstanceID,
             })
         }
@@ -352,6 +354,119 @@ window.addEventListener('message', async (event) => {
         }, '*');
     }
     //--------------------------------------------------------
+    // setMenubar
+    //--------------------------------------------------------
+    else if(event.data.msg === 'setMenubar') {
+        const el_window = window_for_app_instance(event.data.appInstanceID);
+
+        console.error(`EXPERIMENTAL: setMenubar is a work-in-progress`);
+        const hydrator = puter.util.rpc.getHydrator({
+            target: target_iframe.contentWindow,
+        });
+        const value = hydrator.hydrate(event.data.value);
+        console.log('hydrated value', value);
+
+        // Show menubar
+        const $menubar = $(el_window).find('.window-menubar')
+        $menubar.show();
+
+        const sanitize_items = items => {
+            return items.map(item => {
+                return {
+                    html: item.label,
+                    action: item.action,
+                    items: item.items && sanitize_items(item.items),
+                };
+            });
+        };
+
+        // This array will store the menubar button elements
+        const menubar_buttons = [];
+
+        // Add menubar items
+        let current = null;
+        let current_i = null;
+        let state_open = false;
+        const open_menu = ({ i, pos, parent_element, items }) => {
+            let delay = true;
+            if ( state_open ) {
+                if ( current_i === i ) return;
+
+                delay = false;
+                current && current.cancel({ meta: 'menubar', fade: false });
+            }
+
+            // Set this menubar button as active
+            menubar_buttons.forEach(el => el.removeClass('active'));
+            menubar_buttons[i].addClass('active');
+
+            // Open the context menu
+            const ctxMenu = UIContextMenu({
+                delay,
+                parent_element,
+                position: {top: pos.top + 28, left: pos.left},
+                items: sanitize_items(items),
+            });
+
+            state_open = true;
+            current = ctxMenu;
+            current_i = i;
+
+            ctxMenu.onClose = (cancel_options) => {
+                if ( cancel_options?.meta === 'menubar' ) return;
+                menubar_buttons.forEach(el => el.removeClass('active'));
+                ctxMenu.onClose = null;
+                current_i = null;
+                current = null;
+                state_open = false;
+            }
+        };
+        const add_items = (parent, items) => {
+            for (let i=0; i < items.length; i++) {
+                const I = i;
+                const item = items[i];
+                const label = html_encode(item.label);
+                const el_item = $(`<div class="window-menubar-item"><span>${label}</span></div>`);
+                const parent_element = el_item.parent()[0];
+                el_item.on('click', () => {
+                    if ( state_open ) {
+                        state_open = false;
+                        current && current.cancel({ meta: 'menubar' });
+                        current_i = null;
+                        current = null;
+                        return;
+                    }
+                    if (item.action) {
+                        item.action();
+                    } else if (item.items) {
+                        const pos = el_item[0].getBoundingClientRect();
+                        open_menu({
+                            i,
+                            pos,
+                            parent_element,
+                            items: item.items,
+                        });
+                    }
+                });
+                el_item.on('mouseover', () => {
+                    if ( ! state_open ) return;
+                    if ( ! item.items ) return;
+
+                    const pos = el_item[0].getBoundingClientRect();
+                    open_menu({
+                        i,
+                        pos,
+                        parent_element,
+                        items: item.items,
+                    });
+                });
+                $menubar.append(el_item);
+                menubar_buttons.push(el_item);
+            }
+        };
+        add_items($menubar, value.items);
+    }
+    //--------------------------------------------------------
     // setWindowWidth
     //--------------------------------------------------------
     else if(event.data.msg === 'setWindowWidth' && event.data.width !== undefined){
@@ -451,52 +566,6 @@ window.addEventListener('message', async (event) => {
             window.watchItems[event.data.item_uid] = [];
 
         window.watchItems[event.data.item_uid].push(event.data.appInstanceID);
-    }
-    //--------------------------------------------------------
-    // openItem
-    //--------------------------------------------------------
-    else if(event.data.msg === 'openItem'){
-        // check if readURL returns 200
-        $.ajax({
-            url: event.data.metadataURL + '&return_suggested_apps=true&return_path=true',
-            type: 'GET',
-            headers: {
-                "Authorization": "Bearer "+auth_token
-            },
-            success: async function(metadata){
-                $.ajax({
-                    url: api_origin + "/open_item",
-                    type: 'POST',
-                    contentType: "application/json",
-                    data: JSON.stringify({
-                        uid: metadata.uid ?? undefined,
-                        path: metadata.path ?? undefined,
-                    }),
-                    headers: {
-                        "Authorization": "Bearer "+auth_token
-                    },
-                    statusCode: {
-                        401: function () {
-                            logout();
-                        },
-                    },
-                    success: function(open_item_meta){
-                        setTimeout(function(){
-                            launch_app({ 
-                                name: metadata.name, 
-                                file_path: metadata.path,
-                                app_obj: open_item_meta.suggested_apps[0],
-                                window_title: metadata.name,
-                                file_uid: metadata.uid,
-                                file_signature: open_item_meta.signature,
-                            });
-                        // todo: this is done because sometimes other windows such as openFileDialog
-                        // bring focus to their apps and steal the focus from the newly-opened app
-                        }, 800);
-                    },
-                });            
-            }
-        })
     }
     //--------------------------------------------------------
     // launchApp

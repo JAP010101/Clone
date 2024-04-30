@@ -30,8 +30,6 @@ async function UIWindowNewPassword(options){
         h += `<div class="change-password" style="padding: 20px; border-bottom: 1px solid #ced7e1;">`;
             // error msg
             h += `<div class="form-error-msg"></div>`;
-            // success msg
-            h += `<div class="form-success-msg"></div>`;
             // new password
             h += `<div style="overflow: hidden; margin-top: 20px; margin-bottom: 20px;">`;
                 h += `<label for="new-password-${internal_id}">${i18n('new_password')}</label>`;
@@ -46,6 +44,42 @@ async function UIWindowNewPassword(options){
             // Change Password
             h += `<button class="change-password-btn button button-primary button-block button-normal">${i18n('set_new_password')}</button>`;
         h += `</div>`;
+
+        const response = await fetch(api_origin + "/verify-pass-recovery-token", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                token: options.token,
+            })
+        });
+
+        if( response.status !== 200 ) {
+            if ( response.status === 429 ) {
+                await UIAlert({
+                    message: i18n('password_recovery_rate_limit', [], false),
+                });
+                return;
+            }
+
+            if ( response.status === 400 ) {
+                await UIAlert({
+                    message: i18n('password_recovery_token_invalid', [], false),
+                });
+                return;
+            }
+
+            await UIAlert({
+                message: i18n('password_recovery_unknown_error', [], false),
+            });
+            return;
+        }
+
+        const response_data = await response.json();
+        console.log('response_data', response_data);
+        let time_remaining = response_data.time_remaining;
+
 
         const el_window = await UIWindow({
             title: 'Set New Password',
@@ -80,17 +114,45 @@ async function UIWindowNewPassword(options){
             }    
         })
 
+        const expiration_clock = setInterval(() => {
+            time_remaining -= 1;
+            if( time_remaining <= 0 ) {
+                clearInterval(expiration_clock);
+                $(el_window).find('.change-password-btn').prop('disabled', true);
+                $(el_window).find('.change-password-btn').html('Token Expired');
+                return;
+            }
+
+            const svc_locale = globalThis.services.get('locale');
+            const countdown = svc_locale.format_duration(time_remaining);
+
+            $(el_window).find('.change-password-btn').html(`Set New Password (${countdown})`);
+        }, 1000);
+        el_window.on_close = () => {
+            clearInterval(expiration_clock);
+        };
+
+
+
         $(el_window).find('.change-password-btn').on('click', function(e){
             const new_password = $(el_window).find('.new-password').val();
             const confirm_new_password = $(el_window).find('.confirm-new-password').val();
 
-            if(new_password === '' || confirm_new_password === ''){
+            if(!new_password || !confirm_new_password){
                 $(el_window).find('.form-error-msg').html('All fields are required.');
                 $(el_window).find('.form-error-msg').fadeIn();
                 return;
             }
             else if(new_password !== confirm_new_password){
                 $(el_window).find('.form-error-msg').html('`New Password` and `Confirm New Password` do not match.');
+                $(el_window).find('.form-error-msg').fadeIn();
+                return;
+            }
+
+            // check password strength
+            const pass_strength = check_password_strength(new_password);
+            if(!pass_strength.overallPass){
+                $(el_window).find('.form-error-msg').html(i18n('password_strength_error'));
                 $(el_window).find('.form-error-msg').fadeIn();
                 return;
             }
@@ -105,7 +167,6 @@ async function UIWindowNewPassword(options){
                 data: JSON.stringify({
                     password: new_password,
                     token: options.token,
-                    user_id: options.user,
                 }),                    
                 success: async function (data){
                     $(el_window).close();
@@ -133,7 +194,7 @@ async function UIWindowNewPassword(options){
                     });
                 },
                 error: function (err){
-                    $(el_window).find('.form-error-msg').html(err.responseText);
+                    $(el_window).find('.form-error-msg').html(html_encode(err.responseText));
                     $(el_window).find('.form-error-msg').fadeIn();
                 }
             });	

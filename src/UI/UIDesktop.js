@@ -817,7 +817,6 @@ async function UIDesktop(options){
     //-------------------------------------------
     if(!is_embedded && !window.is_fullpage_mode){
         refresh_item_container(el_desktop, {fadeInItems: true})
-        window.launch_download_from_url();
     }
 
     // -------------------------------------------
@@ -1073,7 +1072,10 @@ $(document).on('contextmenu taphold', '.taskbar', function(event){
 })
 
 $(document).on('click', '.qr-btn', async function (e) {
-    UIWindowQR();
+    UIWindowQR({
+        message_i18n_key: 'scan_qr_c2a',
+        text: window.gui_origin + '?auth_token=' + window.auth_token,
+    });
 })
 
 $(document).on('click', '.user-options-menu-btn', async function(e){

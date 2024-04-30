@@ -177,8 +177,8 @@ async function UIWindow(options) {
         for (let key in options.params) {
             user_set_url_params.push(key + "=" + options.params[key]);
         }
-        user_set_url_params = '?'+ user_set_url_params.join('&');
-
+        if(user_set_url_params.length > 0)
+            user_set_url_params = '?'+ user_set_url_params.join('&');
     }
     h += `<div class="window window-active 
                         ${options.cover_page ? 'window-cover-page' : ''}
@@ -265,6 +265,13 @@ async function UIWindow(options) {
                 h += `<div draggable="false" title="Desktop" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-desktop.svg'])}">Desktop</div>`;
                 h += `<div draggable="false" title="Videos" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['folder-videos.svg'])}">Videos</div>`;
             h += `</div>`;
+
+        }
+
+        // Menubar
+        {
+            h += `<div class="window-menubar">`;
+            h += `</div>`;
         }
 
         // Navbar
@@ -300,16 +307,22 @@ async function UIWindow(options) {
                 style="${!options.has_head ? ' height: 100%;' : ''}">`;
             // iframe, for apps
             if(options.iframe_url || options.iframe_srcdoc){
-                // iframe
+                // <iframe>
+                // Important: we don't allow allow-same-origin when iframe_srcdoc is used because this would allow the iframe to access the parent window's DOM, localStorage, etc.
+                // this is a security risk and must be avoided.
                 h += `<iframe tabindex="-1"
                         data-app="${html_encode(options.app)}"
                         class="window-app-iframe" 
-                        allowtransparency="true" allowpaymentrequest="true" allowfullscreen="true"
-                        frameborder="0" webkitallowfullscreen="webkitallowfullscreen" mozallowfullscreen="mozallowfullscreen"
+                        frameborder="0" 
                         ${options.iframe_url ? 'src="'+ html_encode(options.iframe_url)+'"' : ''}
                         ${options.iframe_srcdoc ? 'srcdoc="'+ html_encode(options.iframe_srcdoc) +'"' : ''}
-                        allow = "accelerometer; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; web-share; fullscreen;"
-                        sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation"></iframe>`;
+                        allow = "accelerometer; camera; encrypted-media; gamepad; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; fullscreen;"
+                        allowtransparency="true"
+                        allowpaymentrequest="true" 
+                        allowfullscreen="true"
+                        webkitallowfullscreen="webkitallowfullscreen" 
+                        mozallowfullscreen="mozallowfullscreen"
+                        sandbox="allow-forms allow-modals allow-pointer-lock allow-popups allow-popups-to-escape-sandbox ${options.iframe_srcdoc ? '' : 'allow-same-origin'} allow-scripts allow-top-navigation-by-user-activation allow-downloads allow-presentation allow-storage-access-by-user-activation"></iframe>`;
             }
             // custom body
             else if(options.body_content !== undefined){
@@ -461,6 +474,9 @@ async function UIWindow(options) {
     const el_filedialog_cancel_btn = document.querySelector(`#window-${win_id} .filedialog-cancel-btn`);
     const el_openfiledialog_open_btn = document.querySelector(`#window-${win_id} .openfiledialog-open-btn`);
     const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
+
+    // disable menubar by default
+    $(el_window).find('.window-menubar').hide();
 
     if(options.is_maximized){
         // save original size and position
